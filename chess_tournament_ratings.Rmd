@@ -1,0 +1,44 @@
+---
+title: "Parsing Chess Tournament Results into a Tidy CSV"
+author: "Esra Dogan"
+date: "2026-09-22"
+output: html_document
+---
+
+# Introduction
+
+In this project, I work with a text file containing the results of a chess tournament with 64 players. The file contains each player's pair number, name, state, total points, USCF ID, pre and post tournament ratings, and the result and opponent of each of the seven rounds. However, the file is designed to be read by people, not by software: each player's information is split across two lines, fields are separated by pipe characters (\|) and padded with spaces and dashed lines separate the records.
+
+In other words, the data is not tidy. According to Wickham, Çetinkaya-Rundel, and Grolemund (2023), a dataset is tidy when each variable is a column, each observation is a row, and each value is a cell. In this file, a single observation (one player) spans two lines, and some cells hold more than one value. For example, in player 8's record (Ezekiel Houghton), the cell "W 3" holds both the result and the opponent's pair number, and "R: 1641P17-\>1657P24" holds the pre-rating, the post-rating, and provisional rating markers all in one place.
+
+The goal is to transform this file into a tidy CSV file with one row per player and five columns: player's name, state, total points, pre-tournament rating, and average pre-tournament rating of opponents. The last column does not exist in the file and must be calculated.
+
+The chess rating system developed by Arpad Elo has been used in many other contexts, including evaluating job candidates. A player's total points alone do not tell the full story, because scoring 5 points against strong opponents is more impressive than scoring 5 points against weak ones. The average opponent rating adds this context. As an extension, I will compare each player's own rating with the average rating of their opponents.
+
+## Planned Approach
+
+I will read the text file into R from GitHub and reshape it so that each player's information is in a single row. Then I will use stringr and regular expressions to extract the player's name, state, total points, and pre-rating, along with the opponents they played.
+
+To calculate the average opponent rating, I will look up each opponent's pre-rating and average it over the games actually played. Finally, I will check the results against the assignment example, export the table as a CSV file, and compare each player's rating with the average rating of their opponents.
+
+## Anticipated Challenges 
+The main challenge is calculating the average opponent rating correctly. Byes and unplayed rounds have no opponent, so they must be left out, and players who played fewer than seven games should be averaged only over the games they actually played. Since each opponent's rating is stored in that opponent's own row, all ratings need to be extracted before any averages can be calculated.
+
+Cleaning the file also has its own difficulties. Each player's information is split across two lines that must be matched correctly, and some cells hold more than one value as I mentioned before.
+
+
+```{r}
+library(tidyverse)
+```
+
+```{r}
+chess_raw <- read_lines("https://raw.githubusercontent.com/esradogan3/data607-project1/refs/heads/main/tournamentinfo.txt")
+```
+
+```{r}
+head(chess_raw)
+length(chess_raw)
+```
+## References
+
+Wickham, H., Çetinkaya-Rundel, M., & Grolemund, G. (2023). *R for Data Science* (2nd ed.). O'Reilly Media. https://r4ds.hadley.nz
