@@ -17,7 +17,7 @@ The chess rating system developed by Arpad Elo has been used in many other conte
 
 ## Planned Approach
 
-I will read the text file into R from GitHub and reshape it so that each player's information is in a single row. Then I will use stringr and regular expressions to extract the player's name, state, total points, and pre-rating, along with the opponents they played.
+I will read the text file into R from GitHub and reshape it so that each player's information is in a single row. Then I will extract the player's name, state, total points, and pre-rating, along with the opponents they played.
 
 To calculate the average opponent rating, I will look up each opponent's pre-rating and average it over the games actually played. Finally, I will check the results against the assignment example, export the table as a CSV file, and compare each player's rating with the average rating of their opponents.
 
@@ -29,6 +29,7 @@ Cleaning the file also has its own difficulties. Each player's information is sp
 
 ```{r}
 library(tidyverse)
+library(gganimate)
 ```
 
 ```{r}
@@ -39,6 +40,139 @@ chess_raw <- read_lines("https://raw.githubusercontent.com/esradogan3/data607-pr
 head(chess_raw)
 length(chess_raw)
 ```
+```{r}
+url <- "https://raw.githubusercontent.com/esradogan3/data607-project1/refs/heads/main/tournamentinfo.txt"
+
+chess_raw <- readLines(url, warn = FALSE) # hide the warning while reading lines
+chess_raw <- chess_raw[!grepl("^-+\\s*$", chess_raw)] # drop the dashed separator lines
+chess_raw <- chess_raw[-(1:2)] # drop the two header lines (Pair/Num rows)
+
+row1 <- chess_raw[seq(1, length(chess_raw), by = 2)] # pair num, name, points, rounds
+row2 <- chess_raw[seq(2, length(chess_raw), by = 2)] # state, USCF ID / ratings
+
+p1 <- read.table(text = row1, sep = "|", strip.white = TRUE,
+                 quote = "", stringsAsFactors = FALSE)
+p2 <- read.table(text = row2, sep = "|", strip.white = TRUE,
+                 quote = "", stringsAsFactors = FALSE)
+
+chess <- data.frame(
+  id         = p1$V1,
+  name       = p1$V2,
+  state      = p2$V1,
+  points     = as.numeric(p1$V3),
+  pre_rating = as.numeric(sub(".*R:\\s*(\\d+).*", "\\1", p2$V2))
+)
+
+print(chess)
+```
+**Checking if everything looks good:**
+```{r}
+nrow(chess)
+View(chess)
+```
+## Step by Step Calculating Average Pre-Ratings of Opponent's:
+```{r}
+gsub("\\D", "", unlist(p1[1, 4:10]))
+```
+```{r}
+opponents <- as.integer(gsub("\\D", "", unlist(p1[1, 4:10])))
+opponents
+```
+```{r}
+opp_ratings <- chess$pre_rating[opponents]
+opp_ratings
+mean(opp_ratings, na.rm = TRUE)
+```
+```{r}
+opp_avg <- numeric(64)
+
+for (i in 1:64) {
+  opponents   <- as.integer(gsub("\\D", "", unlist(p1[i, 4:10])))
+  opp_ratings <- chess$pre_rating[opponents]
+  opp_avg[i]  <- mean(opp_ratings, na.rm = TRUE)
+}
+```
+
+```{r}
+chess <- mutate(chess, opp_avg_prerating = opp_avg)
+
+head(chess)
+```
+```{r}
+print(chess[c("pre_rating", "opp_avg_prerating")])
+```
+The table above places each player's pre-rating next to their opponents' average pre-rating, so the two can be compared directly. I discuss this comparison in more detail in the video.
+
+```{r}
+write.csv(chess, "chess_ratings.csv", row.names = FALSE)
+```
+## Additional Exploration: How the Standings Changed Round by Round
+
+Beyond the main task, I wanted to see how the tournament unfolded over time. Using each player's result in every round, I calculated their running point total after each of the 7 rounds and animated the top 10 players' standings with gganimate. As a check, each player's total after round 7 matches their final `points` value in the data.
+
+```{r}
+# Step 1: Get each round's result letter (W, L, D, ...) from columns V4 to V10
+rounds <- p1[, c("V4", "V5", "V6", "V7", "V8", "V9", "V10")]
+
+for (i in 1:7) {
+  rounds[[i]] <- substr(trimws(rounds[[i]]), 1, 1)
+}
+
+rounds$id     <- 1:nrow(rounds)
+rounds$player <- chess$name
+
+# Step 2: Convert letters to points (win = 1, draw = 0.5, loss = 0)
+points_df <- rounds
+
+for (i in 1:7) {
+  letter <- points_df[[i]]
+  points_df[[i]] <- ifelse(letter %in% c("W", "X", "B"), 1,
+                    ifelse(letter %in% c("D", "H"), 0.5, 0))
+}
+
+# Step 3: Running total of points after each round
+cum_df <- points_df
+
+for (i in 2:7) {
+  cum_df[[i]] <- cum_df[[i - 1]] + points_df[[i]]
+}
+
+# Step 4: Reshape to long format (one row per player per round)
+long <- pivot_longer(cum_df,
+                     cols = V4:V10,
+                     names_to = "round",
+                     values_to = "total")
+
+long$round <- as.numeric(substr(long$round, 2, 3)) - 3
+
+# Step 5: Keep the top 10 players in each round
+top <- NULL
+
+for (r in 1:7) {
+  this_round <- long[long$round == r, ]
+  this_round <- this_round[order(-this_round$total), ]
+  this_round$rank <- 1:nrow(this_round)
+  top <- rbind(top, this_round[1:10, ])
+}
+
+# Step 6: Animated bar chart of the standings, round by round
+p <- ggplot(top, aes(x = rank, y = total, group = player, fill = player)) +
+  geom_col(show.legend = FALSE) +
+  geom_text(aes(label = player), hjust = -0.05, size = 3) +
+  coord_flip(clip = "off") +
+  scale_x_reverse() +
+  scale_y_continuous(limits = c(0, 9)) +
+  labs(title = "Standings after round {closest_state}",
+       x = NULL, y = "Total points") +
+  transition_states(round, transition_length = 2, state_length = 1)
+
+animate(p, nframes = 100, fps = 10)
+```
+```
+## Using LLM:
+I used Claude (Anthropic, 2026) as a tutor while working on this project, to understand R functions and regular expressions, debug errors, and plan the calculation and animation steps. I wrote the code myself with its guidance. The link to the chat: https://claude.ai/share/ef57a130-5f58-4300-a86c-ca45e3cfdd47
+
 ## References
 
+Anthropic. (2026). Claude (Opus 5.5 version) [Large language model]. https://claude.ai
 Wickham, H., Çetinkaya-Rundel, M., & Grolemund, G. (2023). *R for Data Science* (2nd ed.). O'Reilly Media. https://r4ds.hadley.nz
